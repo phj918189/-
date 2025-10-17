@@ -1,0 +1,6 @@
+playwright
+pandas
+python-dotenv
+SQLAlchemy
+openpyxl
+requests
