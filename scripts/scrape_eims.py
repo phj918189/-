@@ -285,6 +285,13 @@ def fetch_excel_df(date_from=None, date_to=None):
                         
                         if is_success or not is_failure:
                             logger.info("✅ 로그인 성공!")
+                            
+                            # 현재 URL이 이미 목표 페이지인지 확인
+                            if "field_water" in current_url.lower():
+                                logger.info("✅ 이미 목표 페이지에 도달됨! 추가 이동 불필요")
+                                login_success = True
+                                break
+                            
                             login_success = True
                             break
                         else:
@@ -320,44 +327,57 @@ def fetch_excel_df(date_from=None, date_to=None):
                 logger.error("모든 로그인 URL에서 로그인에 실패했습니다.")
                 raise Exception("모든 로그인 URL에서 로그인에 실패했습니다.")
 
-            # 목표 페이지로 이동 - 실제 도달 확인
-            # logger.info(f"목표 페이지로 이동: {FIELD_URL}")
-            logger.info(f"목표 페이지로 이동: {"https://www.xn--lu5b7kx8m.kr/ms/field_water.do"}")
-            
-            # 현재 URL 확인
+            # 목표 페이지 확인 및 이동 (필요한 경우만)
             current_url = page.url
-            logger.info(f"이동 전 URL: {current_url}")
+            logger.info(f"현재 URL: {current_url}")
             
-            # 목표 페이지로 이동
-            page.goto("https://www.xn--lu5b7kx8m.kr/ms/field_water.do", timeout=60000)
-            page.wait_for_load_state("networkidle", timeout=30000)
-            
-            # 이동 후 실제 URL 확인
-            actual_url = page.url
-            logger.info(f"이동 후 실제 URL: {actual_url}")
-            
-            # 목표 페이지 도달 확인
-            if "field_water" in actual_url.lower():
-                logger.info("✅ 목표 페이지 도달 성공!")
+            if "field_water" in current_url.lower():
+                logger.info("✅ 이미 목표 페이지에 있음! 이동 불필요")
             else:
-                logger.error(f"❌ 목표 페이지 도달 실패! 실제 URL: {actual_url}")
-                logger.info("재시도 중...")
+                logger.info("목표 페이지로 이동 필요")
                 
-                # 재시도
-                page.goto(FIELD_URL, timeout=60000)
-                page.wait_for_load_state("networkidle", timeout=30000)
-                
-                # 재시도 후 URL 확인
-                retry_url = page.url
-                logger.info(f"재시도 후 URL: {retry_url}")
-                
-                if "field_water" in retry_url.lower():
-                    logger.info("✅ 재시도로 목표 페이지 도달 성공!")
+                # 같은 도메인으로 이동 (올바른 경로로)
+                if "notify.do" in current_url:
+                    # notify.do에서 field_water.do로 이동 (public 폴더에서 ms 폴더로)
+                    target_url = current_url.replace("/ms/public/notify.do", "/ms/field_water.do")
                 else:
-                    logger.error(f"❌ 재시도 실패! 최종 URL: {retry_url}")
-                    raise Exception(f"목표 페이지에 도달할 수 없습니다. 현재 URL: {retry_url}")
+                    target_url = current_url.replace("/ms/", "/ms/field_water.do")
+                
+                logger.info(f"같은 도메인으로 이동: {target_url}")
+                
+                try:
+                    # 실제 페이지 이동 전후 URL 확인
+                    logger.info(f"이동 전 실제 URL: {page.url}")
+                    page.goto(target_url, timeout=60000)
+                    logger.info(f"page.goto() 완료")
+                    
+                    page.wait_for_load_state("networkidle", timeout=30000)
+                    logger.info(f"네트워크 대기 완료")
+                    
+                    final_url = page.url
+                    logger.info(f"이동 후 실제 URL: {final_url}")
+                    
+                    # 페이지 제목도 확인
+                    try:
+                        page_title = page.title()
+                        logger.info(f"페이지 제목: {page_title}")
+                    except:
+                        logger.warning("페이지 제목을 가져올 수 없음")
+                    
+                    if "field_water" in final_url.lower():
+                        logger.info("✅ 목표 페이지 도달 성공!")
+                    else:
+                        logger.error(f"❌ 목표 페이지 도달 실패: {final_url}")
+                        logger.error(f"예상 URL: {target_url}")
+                        logger.error(f"실제 URL: {final_url}")
+                        raise Exception(f"목표 페이지에 도달할 수 없습니다: {final_url}")
+                        
+                except Exception as e:
+                    logger.error(f"목표 페이지 이동 실패: {e}")
+                    logger.error(f"현재 URL: {page.url}")
+                    raise
             
-            logger.info("✅ 목표 페이지 로딩 완료")
+            logger.info("✅ 목표 페이지 준비 완료")
 
             # (필요 시) 날짜 필터 셀렉터 채우기
             # page.fill('#dateFrom', date_from)
