@@ -6,21 +6,23 @@ HEADER_ITEM_CANDIDATES: List[str] = ["측정항목", "항목", "분석항목"]
 
 # 한글 컬럼명 -> 표준 컬럼명 매핑(동의어 포함)
 SYNONYM_COLMAP = {
-    # 식별자 후보들
+    # 식별자 후보들 - 우선순위에 따라 하나만 매핑
     "측정번호": "sample_no",
-    "시료번호": "sample_no",
+    "시료번호": "sample_no", 
     "의뢰번호": "sample_no",
     "접수번호": "sample_no",
-    "계약번호": "sample_no",
-    "사업장관리번호": "sample_no",
+    "계약번호": "contract_no",  # 계약번호는 별도 컬럼으로
+    "사업장관리번호": "site_code",  # 사업장관리번호는 별도 컬럼으로
 
     # 그 외 정보
     "현장명": "site_name",
     "사업장": "site_name",
+    "측정대상사업장": "site_name",
     "채취일시": "collected_at",
     "채취일자": "collected_at",
     "종류": "kind",
     "상태": "status",
+    "측정상태": "status",
     "측정항목": "item",
     "항목": "item",
 }
@@ -39,9 +41,11 @@ def _promote_header_row(df: pd.DataFrame) -> pd.DataFrame:
     for i in range(min(10, len(df))):
         row_values = [str(v).strip() for v in list(df.iloc[i].values)]
         if any(any(cand in v for cand in HEADER_ITEM_CANDIDATES) for v in row_values):
+            # 헤더 행을 찾았으면 그 행을 컬럼명으로 사용하고 다음 행부터 데이터로 사용
             df = df.iloc[i + 1 :].copy()
             df.columns = _clean_headers(row_values)
             return df
+    
     # 기본: 현재 헤더 정리만 적용
     df = df.copy()
     df.columns = _clean_headers(list(df.columns))
@@ -72,8 +76,12 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     df = df[keep].copy()
 
     for c in df.columns:
-        if df[c].dtype == object:
-            df[c] = df[c].astype(str).str.strip()
+        try:
+            if df[c].dtype == object:
+                df[c] = df[c].astype(str).str.strip()
+        except AttributeError:
+            # 컬럼이 중복되어 DataFrame이 반환되는 경우
+            continue
 
     # uniq_key 생성: sample_no 있으면 sample_no+item, 없으면 site_name/collected_at 조합
     if "sample_no" in df.columns:

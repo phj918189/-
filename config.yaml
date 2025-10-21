@@ -1,0 +1,29 @@
+# config.yaml - 설정 파일 예시
+database:
+  path: "storage/lab.db"
+  backup_retention_days: 30
+
+email:
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  from_email: "your-email@gmail.com"
+  
+eims:
+  login_urls:
+    - "https://xn--lu5b7kx8m.kr/init.go"
+  field_url: "https://www.xn--lu5b7kx8m.kr/ms/field_water.do"
+
+file_management:
+  excel_retention_days: 7
+  csv_retention_days: 30
+  log_retention_days: 30
+
+researchers:
+  csv_path: "sql/researchers.csv"
+  active_default: true
+
+logging:
+  level: "INFO"
+  file_path: "storage/logs/app.log"
+  max_file_size: "10MB"
+  backup_count: 5

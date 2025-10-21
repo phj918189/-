@@ -28,6 +28,7 @@ def upsert_samples(df, source_path:str):
                 item=excluded.item,
                 status=excluded.status,
                 raw_path=excluded.raw_path,
+                created_at=excluded.created_at
             """, (row.get("sample_no"), row.get("site_name"), row.get("collected_at"), row.get("kind"), row.get("item"), row.get("status"), row.get("uniq_key"), source_path, now))
 
 

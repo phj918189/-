@@ -10,83 +10,105 @@ from scripts.normalize import normalize
 from scripts import db
 from scripts.assign import run_assign
 from scripts.notify import notify
-
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('storage/logs/job.log', encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+from scripts.cleanup import cleanup_old_files
+from scripts.structured_logger import logger
+from scripts.database_manager import DatabaseManager
+from scripts.sync_to_shared import SharedFolderSync
 
 def main():
     try:
-        logger.info("=== EIMS 자동화 프로세스 시작 ===")
+        # 구조화된 로깅 시작
+        logger.log_event("process_started", version="1.0")
+        
+        # 데이터베이스 관리자 초기화
+        db_manager = DatabaseManager()
         
         # 1) 데이터베이스 초기화
         try:
-            logger.info("1단계: 데이터베이스 초기화")
+            logger.log_event("database_init_started")
             db.init_db()
-            logger.info("✅ 데이터베이스 초기화 완료")
+            logger.log_event("database_init_completed")
         except Exception as e:
-            logger.error(f"❌ 데이터베이스 초기화 실패: {e}")
+            logger.log_error("database_init_failed", e)
             raise
         
         # 2) 엑셀 다운로드
         try:
-            logger.info("2단계: 엑셀 다운로드")
+            logger.log_event("excel_download_started")
             raw = fetch_excel_df()
             src = raw.attrs.get("source_path","")
-            logger.info(f"✅ 엑셀 다운로드 완료: {src}")
+            logger.log_download(src.split('/')[-1], len(raw), len(raw))
         except Exception as e:
-            logger.error(f"❌ 엑셀 다운로드 실패: {e}")
-            logger.error("로그인 문제일 가능성이 높습니다. .env 파일과 네트워크 연결을 확인하세요.")
+            logger.log_error("excel_download_failed", e, 
+                           suggestion="로그인 문제일 가능성이 높습니다. .env 파일과 네트워크 연결을 확인하세요.")
             raise
         
         # 3) 데이터 표준화
         try:
-            logger.info("3단계: 데이터 표준화")
+            logger.log_event("data_normalization_started", rows=len(raw))
             df = normalize(raw)
-            logger.info(f"✅ 데이터 표준화 완료: {len(df)} 행")
+            logger.log_event("data_normalization_completed", rows=len(df))
         except Exception as e:
-            logger.error(f"❌ 데이터 표준화 실패: {e}")
+            logger.log_error("data_normalization_failed", e)
             raise
         
         # 4) 데이터베이스 저장
         try:
-            logger.info("4단계: 데이터베이스 저장")
+            logger.log_event("database_save_started", rows=len(df))
             db.upsert_samples(df, src)
-            logger.info("✅ 데이터베이스 저장 완료")
+            logger.log_event("database_save_completed")
         except Exception as e:
-            logger.error(f"❌ 데이터베이스 저장 실패: {e}")
+            logger.log_error("database_save_failed", e)
             raise
         
         # 5) 작업 배정
         try:
-            logger.info("5단계: 작업 배정")
+            logger.log_event("assignment_started", rows=len(df))
             assigned = run_assign(df)
-            logger.info(f"✅ 작업 배정 완료: {len(assigned)} 건")
+            logger.log_assignment("system", len(assigned), [a["item"] for a in assigned])
         except Exception as e:
-            logger.error(f"❌ 작업 배정 실패: {e}")
+            logger.log_error("assignment_failed", e)
             raise
         
         # 6) 알림 발송
         try:
-            logger.info("6단계: 알림 발송")
+            logger.log_event("notification_started", count=len(assigned))
             notify(assigned)
-            logger.info("✅ 알림 발송 완료")
+            logger.log_event("notification_completed")
         except Exception as e:
-            logger.error(f"❌ 알림 발송 실패: {e}")
-            logger.warning("알림 발송 실패했지만 프로세스는 계속 진행됩니다.")
+            logger.log_error("notification_failed", e)
+            logger.log_event("notification_failed_but_continuing")
         
-        logger.info("=== EIMS 자동화 프로세스 완료 ===")
+        # 7) 데이터베이스 백업
+        try:
+            logger.log_event("backup_started")
+            backup_path = db_manager.backup_database()
+            logger.log_event("backup_completed", backup_path=str(backup_path))
+        except Exception as e:
+            logger.log_error("backup_failed", e)
+        
+        # 8) 파일 정리
+        try:
+            logger.log_event("cleanup_started")
+            cleanup_old_files()
+            logger.log_event("cleanup_completed")
+        except Exception as e:
+            logger.log_error("cleanup_failed", e)
+        
+        # 9) 공유폴더 동기화
+        try:
+            logger.log_event("shared_folder_sync_started")
+            shared_sync = SharedFolderSync()
+            shared_sync.sync_all()
+            logger.log_event("shared_folder_sync_completed")
+        except Exception as e:
+            logger.log_error("shared_folder_sync_failed", e)
+            logger.log_event("shared_folder_sync_failed_but_continuing")
+        
+        logger.log_event("process_completed", success=True)
         
     except Exception as e:
-        logger.error(f"프로세스 실행 중 오류 발생: {e}")
-        logger.error("프로그램을 종료합니다.")
+        logger.log_error("process_failed", e)
         sys.exit(1)
 
 if __name__ == "__main__":

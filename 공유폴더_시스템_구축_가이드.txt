@@ -1,0 +1,371 @@
+# 공유폴더 기반 EIMS 자동화 시스템 구축 가이드
+
+## 📋 개요
+회사 공유폴더를 활용한 EIMS 자동화 시스템 구축 방법
+- 기존 인프라 활용 (추가 비용 없음)
+- 담당자별 작업 분배
+- 실시간 대시보드 제공
+
+## 🏗️ 시스템 구조
+
+### 공유폴더 구조
+```
+//server/shared/eims_automation/
+├── 📁 assignments/              # 담당자별 작업 폴더
+│   ├── 📁 김연구원/
+│   │   ├── 📁 today/           # 오늘 배정된 작업
+│   │   │   └── 📁 20251020/    # 날짜별 폴더
+│   │   │       ├── 📄 assignments_20251020.csv
+│   │   │       ├── 📄 summary_20251020.txt
+│   │   │       └── 📄 assignments_20251020.xlsx
+│   │   ├── 📁 pending/         # 대기 중인 작업
+│   │   ├── 📁 completed/      # 완료된 작업
+│   │   └── 📄 README.md       # 담당자별 안내
+│   └── 📁 박연구원/
+├── 📁 system/                   # 시스템 파일
+│   ├── 📁 scripts/             # 실행 스크립트들
+│   ├── 📁 config/              # 설정 파일들
+│   └── 📁 logs/                # 시스템 로그
+├── 📁 data/                    # 데이터 저장소
+│   ├── 📁 downloads/           # 다운로드된 엑셀 파일
+│   ├── 📁 backups/             # 데이터베이스 백업
+│   └── 📄 lab.db               # SQLite 데이터베이스
+├── 📁 reports/                 # 분석 보고서
+├── 📄 dashboard.html           # 전체 현황 대시보드
+├── 📄 run_eims.bat            # 시스템 실행 스크립트
+├── 📄 사용자_가이드.md         # 사용법 안내
+└── 📄 관리자_매뉴얼.md         # 관리자용 매뉴얼
+```
+
+## 🚀 구축 단계
+
+### 1단계: 폴더 구조 생성
+```python
+# shared_folder_structure.py
+class SharedFolderStructure:
+    def __init__(self, shared_path="//server/shared/eims_automation"):
+        self.shared_path = Path(shared_path)
+    
+    def create_folder_structure(self):
+        # 메인 폴더들 생성
+        folders = ["assignments", "system", "data", "reports"]
+        for folder in folders:
+            (self.shared_path / folder).mkdir(parents=True, exist_ok=True)
+        
+        # 하위 폴더들 생성
+        subfolders = {
+            "system": ["scripts", "config", "logs"],
+            "data": ["downloads", "backups"]
+        }
+        
+        for main_folder, subs in subfolders.items():
+            for sub in subs:
+                (self.shared_path / main_folder / sub).mkdir(parents=True, exist_ok=True)
+```
+
+### 2단계: 파일 배포
+```python
+# shared_folder_deployer.py
+class SharedFolderDeployer:
+    def deploy_core_files(self):
+        # 배포할 파일 목록
+        files_to_deploy = {
+            "sql/job.py": "system/scripts/",
+            "scripts/normalize.py": "system/scripts/",
+            "scripts/assign.py": "system/scripts/",
+            "scripts/notify.py": "system/scripts/",
+            "scripts/db.py": "system/scripts/",
+            "scripts/cleanup.py": "system/scripts/",
+            "config.yaml": "system/config/",
+            "README.md": "system/"
+        }
+        
+        for src_file, dst_folder in files_to_deploy.items():
+            src_path = self.local_project / src_file
+            dst_path = self.shared_path / dst_folder / Path(src_file).name
+            shutil.copy2(src_path, dst_path)
+```
+
+### 3단계: 담당자별 폴더 생성
+```python
+def create_researcher_folders(self):
+    # 데이터베이스에서 연구원 목록 조회
+    conn = sqlite3.connect(self.db_path)
+    researchers = pd.read_sql_query("""
+        SELECT DISTINCT researcher 
+        FROM assignments 
+        WHERE researcher IS NOT NULL
+        ORDER BY researcher
+    """, conn)
+    conn.close()
+    
+    for researcher in researchers['researcher'].tolist():
+        researcher_folder = self.shared_path / "assignments" / researcher
+        researcher_folder.mkdir(parents=True, exist_ok=True)
+        
+        # 하위 폴더들 생성
+        subfolders = ["today", "pending", "completed", "reports"]
+        for subfolder in subfolders:
+            (researcher_folder / subfolder).mkdir(exist_ok=True)
+```
+
+### 4단계: 데이터 분배 시스템
+```python
+# assignment_distributor.py
+class AssignmentDistributor:
+    def distribute_today_assignments(self):
+        # 오늘 배정된 작업 조회
+        assignments = pd.read_sql_query("""
+            SELECT 
+                a.researcher,
+                a.sample_no,
+                a.item,
+                a.assigned_at,
+                s.site_name,
+                s.collected_at,
+                s.status
+            FROM assignments a
+            JOIN samples s ON a.sample_no = s.sample_no
+            WHERE date(a.assigned_at) = date('now', 'localtime')
+            ORDER BY a.researcher, a.assigned_at
+        """, conn)
+        
+        # 담당자별로 그룹화하여 파일 생성
+        for researcher in assignments['researcher'].unique():
+            researcher_data = assignments[assignments['researcher'] == researcher]
+            researcher_folder = self.assignments_folder / researcher / "today"
+            
+            # 오늘 날짜로 폴더 정리
+            today_folder = researcher_folder / datetime.now().strftime('%Y%m%d')
+            today_folder.mkdir(parents=True, exist_ok=True)
+            
+            # CSV 파일 생성
+            csv_path = today_folder / f"assignments_{datetime.now().strftime('%Y%m%d')}.csv"
+            researcher_data.to_csv(csv_path, index=False, encoding='utf-8-sig')
+            
+            # 요약 보고서 생성
+            summary_path = today_folder / f"summary_{datetime.now().strftime('%Y%m%d')}.txt"
+            with open(summary_path, 'w', encoding='utf-8') as f:
+                f.write(f"=== {researcher} 담당 작업 요약 ===\n")
+                f.write(f"배정일: {datetime.now().strftime('%Y-%m-%d')}\n")
+                f.write(f"총 작업 수: {len(researcher_data)}건\n\n")
+                
+                # 측정항목별 통계
+                item_counts = researcher_data['item'].value_counts()
+                f.write("📊 측정항목별 작업 수:\n")
+                for item, count in item_counts.items():
+                    f.write(f"  - {item}: {count}건\n")
+```
+
+### 5단계: 대시보드 생성
+```python
+def create_dashboard(self):
+    # 전체 현황 조회
+    dashboard_data = pd.read_sql_query("""
+        SELECT 
+            researcher,
+            COUNT(*) as total_assignments,
+            COUNT(CASE WHEN date(assigned_at) = date('now', 'localtime') THEN 1 END) as today_assignments
+        FROM assignments 
+        GROUP BY researcher
+        ORDER BY total_assignments DESC
+    """, conn)
+    
+    # HTML 대시보드 생성
+    html_content = f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>EIMS 작업 배정 현황</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+        th {{ background-color: #f2f2f2; }}
+        .today {{ background-color: #e8f5e8; }}
+    </style>
+</head>
+<body>
+    <h1>📊 EIMS 작업 배정 현황</h1>
+    
+    <h2>👥 담당자별 현황</h2>
+    <table>
+        <tr>
+            <th>담당자</th>
+            <th>총 작업 수</th>
+            <th>오늘 작업 수</th>
+            <th>작업 폴더</th>
+        </tr>
+"""
+    
+    for _, row in dashboard_data.iterrows():
+        researcher = row['researcher']
+        html_content += f"""
+        <tr class="{'today' if row['today_assignments'] > 0 else ''}">
+            <td>{researcher}</td>
+            <td>{row['total_assignments']}건</td>
+            <td>{row['today_assignments']}건</td>
+            <td><a href="assignments/{researcher}/">📁 폴더 열기</a></td>
+        </tr>
+"""
+    
+    html_content += """
+    </table>
+</body>
+</html>
+"""
+    
+    # HTML 파일 저장
+    dashboard_path = self.shared_path / "dashboard.html"
+    with open(dashboard_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+```
+
+## ⚙️ 설정 방법
+
+### 1. 환경변수 설정
+`//server/shared/eims_automation/system/config/.env` 파일 생성:
+```env
+EIMS_ID=your_username
+EIMS_PW=your_password
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+MAIL_FROM=your_email@gmail.com
+```
+
+### 2. Windows 작업 스케줄러 설정
+- 작업 스케줄러 열기
+- 기본 작업 만들기
+- 트리거: 매일 오전 9시
+- 작업: `//server/shared/eims_automation/run_eims.bat` 실행
+
+### 3. 실행 스크립트 생성
+```batch
+@echo off
+chcp 65001 >nul
+REM EIMS 자동화 시스템 실행 스크립트
+
+echo ========================================
+echo    EIMS 자동화 시스템 시작
+echo ========================================
+
+REM 현재 디렉토리를 스크립트 위치로 변경
+cd /d "%~dp0"
+
+REM Python 환경 확인
+python --version >nul 2>&1
+if errorlevel 1 (
+    echo [ERROR] Python이 설치되지 않았습니다.
+    pause
+    exit /b 1
+)
+
+REM 의존성 설치 확인
+echo [INFO] 의존성 패키지 확인 중...
+pip install -r system/requirements.txt --quiet
+
+REM 환경변수 파일 확인
+if not exist "system/config/.env" (
+    echo [WARNING] 환경변수 파일이 없습니다.
+    pause
+    exit /b 1
+)
+
+REM 메인 프로세스 실행
+echo [INFO] EIMS 자동화 프로세스 시작...
+python system/scripts/job.py
+
+REM 작업 배정 분배
+echo [INFO] 담당자별 작업 분배 중...
+python system/scripts/assignment_distributor.py
+
+REM 대시보드 생성
+echo [INFO] 대시보드 생성 중...
+python system/scripts/dashboard_generator.py
+
+echo 작업이 완료되었습니다.
+pause
+```
+
+## 👥 사용자별 접근 방법
+
+### 담당자 (일반 사용자)
+1. `//server/shared/eims_automation/assignments/본인이름/today/` 폴더 열기
+2. 오늘 배정된 작업 파일 확인:
+   - `assignments_YYYYMMDD.csv`: 상세 작업 목록
+   - `summary_YYYYMMDD.txt`: 작업 요약
+   - `assignments_YYYYMMDD.xlsx`: 엑셀 파일
+3. 작업 완료 후 `completed/` 폴더로 이동
+4. 필요시 보고서를 `reports/` 폴더에 저장
+
+### 관리자
+1. `//server/shared/eims_automation/dashboard.html` 브라우저에서 열기
+2. 전체 현황 확인:
+   - 담당자별 작업 현황
+   - 최근 배정 내역
+   - 전체 통계
+3. 필요시 `run_eims.bat` 수동 실행
+4. 시스템 로그 확인: `system/logs/app.log`
+
+## 🔧 실행 순서
+
+### 1단계: 준비 작업
+```bash
+# 현재 프로젝트에서 실행
+python shared_folder_structure.py
+```
+
+### 2단계: 전체 배포
+```bash
+# 공유폴더에 모든 파일 배포
+python shared_folder_deployer.py
+```
+
+### 3단계: 통합 실행
+```bash
+# 전체 시스템 실행 (배포 + 프로세스 + 분배)
+python run_shared_deployment.py
+```
+
+## 📊 장단점 비교
+
+### 공유폴더 방식 (현재)
+#### 장점:
+- ✅ 기존 인프라 활용
+- ✅ 추가 비용 없음
+- ✅ 회사 내부 네트워크에서 빠른 접근
+- ✅ IT 정책과 일치
+
+#### 단점:
+- ❌ 실시간 업데이트 어려움
+- ❌ 동시 접근 시 충돌 가능성
+- ❌ 외부 접근 불가
+- ❌ 버전 관리 어려움
+
+### 향후 개선 방향
+1. **3개월 후**: 웹 대시보드 구축
+2. **6개월 후**: 클라우드 이전 검토
+3. **1년 후**: 모바일 앱 개발
+
+## 🚨 주의사항
+
+1. **파일 수정 금지**: `system/` 폴더의 파일은 수정하지 마세요
+2. **정기 실행**: 매일 오전에 시스템을 실행해주세요
+3. **백업 확인**: 중요한 데이터는 별도 백업하세요
+4. **보안**: 로그인 정보는 안전하게 관리하세요
+5. **동시 접근**: 여러 명이 동시에 파일을 수정하지 마세요
+
+## 📞 문의 및 지원
+
+### 시스템 문의
+- **IT팀**: 시스템 오류, 접근 권한 문제
+- **개발팀**: 기능 개선, 새로운 요구사항
+
+### 작업 문의
+- **담당 관리자**: 작업 내용, 우선순위
+- **연구팀장**: 전체 작업 분배, 일정 조정
+
+---
+*작성일: 2025-10-20*
+*문서 버전: 1.0*
+*작성자: 박혁진*
