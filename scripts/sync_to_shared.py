@@ -47,16 +47,30 @@ class SharedFolderSync:
             raise
     
     def get_researchers(self):
-        """데이터베이스에서 연구원 목록 조회 + item_rules.csv에서 연구원 목록 추가"""
+        """item_rules.csv에서 연구원 목록 조회 (주요 소스)"""
         researchers = set()
         
-        # 1) 데이터베이스에서 배정된 연구원 조회
+        # 1) item_rules.csv에서 연구원 목록 조회 (주요 소스)
+        try:
+            rules_path = self.local_project / "sql" / "item_rules.csv"
+            if rules_path.exists():
+                rules_df = pd.read_csv(rules_path)
+                for _, row in rules_df.iterrows():
+                    if pd.notna(row.get('preferred')):
+                        researchers.add(row['preferred'])
+                logger.info(f"item_rules.csv에서 연구원 조회: {len(researchers)}명")
+        except Exception as e:
+            logger.error(f"item_rules.csv 조회 실패: {e}")
+        
+        # 2) 데이터베이스에서 배정된 연구원도 추가 (보조) - 테스트용 이름들 제외
         try:
             conn = sqlite3.connect(self.db_path)
             db_researchers = pd.read_sql_query("""
                 SELECT DISTINCT researcher 
                 FROM assignments 
-                WHERE researcher IS NOT NULL
+                WHERE researcher IS NOT NULL 
+                AND researcher != 'system'
+                AND researcher NOT IN ('김연구원', '박연구원', '이연구원')
                 ORDER BY researcher
             """, conn)
             conn.close()
@@ -67,18 +81,6 @@ class SharedFolderSync:
         except Exception as e:
             logger.error(f"데이터베이스 연구원 목록 조회 실패: {e}")
         
-        # 2) item_rules.csv에서 연구원 목록 추가
-        try:
-            rules_path = self.local_project / "sql" / "item_rules.csv"
-            if rules_path.exists():
-                rules_df = pd.read_csv(rules_path)
-                for _, row in rules_df.iterrows():
-                    if pd.notna(row.get('preferred')):
-                        researchers.add(row['preferred'])
-                logger.info(f"item_rules.csv에서 연구원 추가: {len(researchers)}명")
-        except Exception as e:
-            logger.error(f"item_rules.csv 조회 실패: {e}")
-        
         researcher_list = sorted(list(researchers))
         logger.info(f"최종 연구원 목록: {researcher_list}")
         return researcher_list
@@ -86,6 +88,14 @@ class SharedFolderSync:
     def create_researcher_folders(self):
         """연구원별 폴더 구조 생성"""
         researchers = self.get_researchers()
+        
+        # 테스트용 폴더들 삭제 (필요시)
+        test_names = ['김연구원', '박연구원', '이연구원']
+        for test_name in test_names:
+            test_folder = self.shared_path / test_name
+            if test_folder.exists():
+                logger.info(f"테스트 폴더 삭제: {test_folder}")
+                shutil.rmtree(test_folder, ignore_errors=True)
         
         for researcher in researchers:
             researcher_folder = self.shared_path / researcher
@@ -220,6 +230,8 @@ class SharedFolderSync:
     <style>
         body {{ font-family: Arial, sans-serif; margin: 20px; }}
         table {{ border-collapse: collapse; width: 100%; }}
+        th {{ text-align: center; }}
+        td {{ text-align: center; }}
         th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
         th {{ background-color: #f2f2f2; }}
         .today {{ background-color: #e8f5e8; }}
@@ -259,7 +271,7 @@ class SharedFolderSync:
     <h2>📋 사용 안내</h2>
     <ul>
         <li>각 담당자 폴더에서 오늘 배정된 작업을 확인하세요</li>
-        <li>작업 완료 후 completed 폴더로 이동하세요</li>
+        <!-- <li>작업 완료 후 completed 폴더로 이동하세요</li> -->
         <li>문의사항이 있으면 담당 관리자에게 연락하세요</li>
     </ul>
 </body>

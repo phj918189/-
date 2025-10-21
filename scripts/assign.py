@@ -28,26 +28,42 @@ def run_assign(df):
 
     # 이름 전용 리스트
     names = [p["name"] for p in people]
+    
+    # 디버깅: 로드된 데이터 확인
+    print(f"DEBUG: 로드된 연구원들: {names}")
+    print(f"DEBUG: 로드된 규칙 수: {len(rules)}")
+    for i, rule in enumerate(rules):
+        print(f"DEBUG: 규칙 {i+1}: {rule}")
 
     assigned=[]
     for _, row in df.iterrows():
         item = str(row["item"])
         chosen = None
+        print(f"DEBUG: 처리 중인 항목: '{item}'")
 
-        # 1) 규칙 우선
+        # 규칙에 따른 배정 (라운드로빈 제거)
         for rule in sorted(rules, key=lambda x: int(x.get("priority","1"))):
-            if rule["item_pattern"] and rule["item_pattern"] in item:
-                pref = rule.get("preferred")
-                if pref in names:
-                    chosen = pref
+            if rule["item_pattern"]:
+                # 파이프 구분자로 분리된 패턴들 확인
+                patterns = rule["item_pattern"].split("|")
+                print(f"DEBUG: 패턴들: {patterns}")
+                for pattern in patterns:
+                    if pattern.strip() in item:
+                        pref = rule.get("preferred")
+                        print(f"DEBUG: 매칭된 패턴: '{pattern.strip()}' -> 선호 연구원: '{pref}'")
+                        if pref in names:
+                            chosen = pref
+                            print(f"DEBUG: 배정됨: '{chosen}'")
+                            break
+                if chosen:
                     break
 
-        # 2) 라운드로빈(오늘자 작업량 최소)
+        # 규칙에 해당하지 않는 경우 첫 번째 연구원에게 배정
         if not chosen:
-            pool = sorted([(n, loads.get(n,0)) for n in names], key=lambda x: x[1])
-            chosen = pool[0][0]
+            chosen = names[0] if names else "system"
+            print(f"DEBUG: 규칙 없음, 기본 배정: '{chosen}'")
 
-        assigned.append({"sample_no": row["sample_no"], "item": item, "researcher": chosen, "method":"rule+rr"})
+        assigned.append({"sample_no": row["sample_no"], "item": item, "researcher": chosen, "method":"rule_only"})
         loads[chosen] = loads.get(chosen,0) + 1
 
     db.save_assignments(assigned)

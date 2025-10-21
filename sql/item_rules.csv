@@ -1,4 +1,6 @@
 item_pattern,priority,preferred
-암모니아,1,김연구원
-질산성질소,1,이연구원
-총인,1,박연구원
+"총질소|총인|부유물질|화학적산소요구량|인산염인|암모니아성질소|염소이온 적정법|수은|Total Nitrogen|Total Phosphorus|Suspended Solids|Chemical Oxygen Demand|Phosphorus|Ammonium Nitrogen|Chloride-Titrimetric Method|Mercury|T-N|T-P|SS|COD|PO4-P|NH3-N|Cl-|Hg",1,남승빈
+"노말헥산 추출물질|총유기탄소|페놀류|구리|납|니켈|망간|바륨|비소|셀레늄|아연|안티몬|주석|철|카드뮴|크롬|n-Hexane Extractable Material|Total Organic Carbon|Phenols|Copper|Lead|Nickel|Manganese|Barium|Arsenic|Selenium|Zinc|Antimony|Tin|Iron|Cadmium|Chromium|n-H(광/동)|TOC|Cu|Pb|Ni|Mn|Ba|As|Se|Zn|Sb|Sn|Fe|Cd|Cr",1,장현창
+"생물화학적산소요구량|용존산소|수소이온농도|불소화합물|시안|Biochemical Oxygen Demand|Dissolved Oxygen|Potential of Hydrogen|Fluoride|Cyanides|BOD|DO|pH|F|CN|NO3-N",1,김재석
+"색도|탁도|냄새|클로로필a|음이온계면활성제|총대장균군|대장균|6가크롬|Color|Turbidity|Odor|Chlorophyll a|Anionic Surfactants|Total Coliform|Escherichia coli|Hexavalent Chromium|NO2-N|ABS|Cr+6",1,윤정원과장님
+"다이에틸헥실프탈레이트|1,4-다이옥산|염화비닐|아크릴로니트릴|브로모포름|폼알데하이드|나프탈렌|스타이렌|페놀|디클로로메탄|벤젠|클로로폼|톨루엔|테트라클로로에틸렌|트리클로로에틸렌|사염화탄소|1,1-디클로로에틸렌|1,2-디클로로에탄|펜타클로로페놀|자일렌|에틸벤젠|1,1,1-트리클로로에탄|헥사클로로벤젠|Di-(2-Ethylhexyl)Phthalate|1,4-Dioxane|Vinyl Chloride|Acrylonitrile|Bromoform|Formaldehyde|Naphthalene|Styrene|Phenol|dichloromethane|benzene|Chloroform|toluene|Tetrachloroethylene|trichloroethylene|Carbon tetrachloride|1,1-Dichloroethane|1,2-dichloroethane|Pentachlorophenol|xylene|ethylbenzene|1,1,1-Trichloroethane|hexachlorobenzene|DEHP|DCM",1,김명훈소장님
