@@ -241,6 +241,7 @@ class SharedFolderSync:
 <body>
     <div class="header">
         <h1>📊 EIMS 작업 배정 현황</h1>
+        <p>Environmental Information Management System</p>
         <p>업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
     </div>
     
