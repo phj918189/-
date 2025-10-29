@@ -25,6 +25,9 @@ def run_assign(df):
     rules = _load_rules()
     people = _load_people()
     loads = db.today_loads()  # {name: count}
+    
+    # 이미 배정된 작업 조회
+    existing_assignments = db.get_existing_assignments()
 
     # 이름 전용 리스트
     names = [p["name"] for p in people]
@@ -36,8 +39,18 @@ def run_assign(df):
         print(f"DEBUG: 규칙 {i+1}: {rule}")
 
     assigned=[]
+    skipped=0
     for _, row in df.iterrows():
+        sample_no = str(row.get("sample_no", ""))
         item = str(row["item"])
+        
+        # 중복 체크: 이미 배정된 작업은 스킵
+        assignment_key = f"{sample_no}_{item}"
+        if assignment_key in existing_assignments:
+            print(f"DEBUG: 이미 배정된 작업 스킵 - sample_no: {sample_no}, item: {item}")
+            skipped += 1
+            continue
+        
         chosen = None
         print(f"DEBUG: 처리 중인 항목: '{item}'")
 
@@ -65,6 +78,9 @@ def run_assign(df):
 
         assigned.append({"sample_no": row["sample_no"], "item": item, "researcher": chosen, "method":"rule_only"})
         loads[chosen] = loads.get(chosen,0) + 1
+    
+    print(f"DEBUG: 총 {skipped}개 작업 스킵 (이미 배정됨)")
+    print(f"DEBUG: 새로 배정된 작업: {len(assigned)}개")
 
     db.save_assignments(assigned)
     return assigned

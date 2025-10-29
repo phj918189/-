@@ -10,5 +10,6 @@ CREATE TABLE IF NOT EXISTS researchers(
 );
 CREATE TABLE IF NOT EXISTS assignments(
   id INTEGER PRIMARY KEY, sample_no TEXT, item TEXT,
-  researcher TEXT, assigned_at TEXT, method TEXT
+  researcher TEXT, assigned_at TEXT, method TEXT,
+  UNIQUE(sample_no, item)
 );

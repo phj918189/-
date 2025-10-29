@@ -42,12 +42,21 @@ def today_loads():
         """)
         return dict(cur.fetchall())
 
+def get_existing_assignments():
+    """이미 배정된 작업 조회 (sample_no_item 키 형태로 반환)"""
+    with sqlite3.connect(DB_PATH) as conn:
+        cur = conn.execute("""
+            SELECT DISTINCT sample_no || '_' || item as key
+            FROM assignments
+        """)
+        return set(row[0] for row in cur.fetchall())
+
 def save_assignments(rows):
     now = datetime.now().isoformat(timespec="seconds")
     with sqlite3.connect(DB_PATH) as conn:
         for r in rows:
             conn.execute("""
-            INSERT INTO assignments (sample_no, item, researcher, assigned_at, method)
+            INSERT OR IGNORE INTO assignments (sample_no, item, researcher, assigned_at, method)
             VALUES (?, ?, ?, ?, ?)
             """, (r.get("sample_no"), r.get("item"), r.get("researcher"), now, r.get("method", "rule+rr")))
     

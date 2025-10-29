@@ -1,0 +1,669 @@
+exe에 빌드
+python -m PyInstaller --noconsole --onefile excel_compare_app.py
+
+
+그런데 방법을 좀 바꿀꺼야. 
+지금은 프로젝트 경로에 비교 할 두개의 파일을 두고 코드상에서 비교하여 새로운 엑셀 파일 생성하고 있음.
+
+그러나 변경하고 싶은 방법은
+우선 비교하는 역할을 수행하는 프로그램을 만들고 그 안에서 원하는 두 파일들을 선택 한후 비교하는 방식으로 진행하고 싶음.
+예를 들면 첫번째 파일의 각 셀들이 두번째 파일의 셀들의 내용과 일치하는지 여부를 판단하려고 함. 
+
+만약 일치하면 기존 배경색 유지, 불일치 하면 초록색으로 해당 셀만 배경색 변경할 수 있도록 해야겠음.
+
+
+
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
+from tkinter import Tk, filedialog
+import os
+
+def select_file(title="엑셀 파일 선택"):
+    """파일 선택창 열기"""
+    path = filedialog.askopenfilename(
+        title=title,
+        filetypes=[("Excel files", "*.xls *.xlsx")]
+    )
+    return path
+
+def compare_excel_files(file1, file2, output="비교결과.xlsx"):
+    # 파일 읽기
+    a = pd.read_excel(file1, sheet_name=0, dtype=str).fillna("")
+    b = pd.read_excel(file2, sheet_name=0, dtype=str).fillna("")
+
+    # 크기 통일
+    max_rows = max(a.shape[0], b.shape[0])
+    max_cols = max(a.shape[1], b.shape[1])
+
+    # 첫 번째 파일을 복사해 기준으로 사용
+    a.to_excel(output, index=False)
+    wb = load_workbook(output)
+    ws = wb.active
+
+    # 색상 정의
+    green = PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+
+    # 셀 단위 비교
+    for i in range(max_rows):
+        for j in range(max_cols):
+            val_a = str(a.iat[i, j]) if i < len(a.index) and j < len(a.columns) else ""
+            val_b = str(b.iat[i, j]) if i < len(b.index) and j < len(b.columns) else ""
+
+            if val_a != val_b:
+                ws.cell(row=i + 2, column=j + 1).fill = green  # 헤더 아래부터 색상 변경
+
+    wb.save(output)
+    print(f"✅ 비교 완료: {output}")
+    print("   - 초록색: 값이 불일치한 셀")
+
+def main():
+    root = Tk()
+    root.withdraw()  # Tk 창 숨김
+
+    print("=== 엑셀 파일 비교 프로그램 ===")
+    file1 = select_file("첫 번째 파일(기준 파일)을 선택하세요")
+    if not file1:
+        print("❌ 첫 번째 파일이 선택되지 않았습니다.")
+        return
+    file2 = select_file("두 번째 파일(비교 대상 파일)을 선택하세요")
+    if not file2:
+        print("❌ 두 번째 파일이 선택되지 않았습니다.")
+        return
+
+    print("\n📁 기준 파일:", os.path.basename(file1))
+    print("📁 비교 대상:", os.path.basename(file2))
+    compare_excel_files(file1, file2)
+
+if __name__ == "__main__":
+    main()
+
+
+터미널의 bash에서 python excel_compare.py를 실행해서 파일을 비교하고 있는데, 
+이것보다 비교 기능을 수행하는 프로그램을 하나 만들어서 그 프로그램을 실행하여 두 파일 선택후 비교하는 방식으로 진행하고 싶어. 
+지금의 방식은 비교할 업무가 발생하면 매번 코드를 실행해야 하는 번거로움이 있어서 너무 불편함. 
+
+
+지금은 프로그램의 파일 선택 및 비교 시작 버튼을 클릭해서 두 파일을 불러온 후 비교를 진행하고 있어. 
+그러나 내가 원하는 건 프로그램을 실행하면 파일 불러오면 그 파일이 프로그램 상에서 열려 있어야 해. 
+그렇게 두 파일을 모두 불러와서 열어 놓고 비교 시작 버튼을 클릭하여 실행하고 싶어. 
+
+이렇게 진행 할 경우 비교 파일을 생성 하지 않고서도 두 파일의 다른 내용을 확인 할 수 있어. 
+그리고 너가 참고 해야 할 것은 각 셀들의 사이즈도 정확히 확인 해야 돼. 
+지금까지 너가 만들어준 코드는 줄바꿈 되어 있는 텍스트에서 맨 윗줄 텍스트만 보여주고 아랫줄은 아예 보여주지 않고 있어. 
+
+
+
+
+커서에서 최종임. 
+실행 명령어
+python excel_compare_app.py
+
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tksheet import Sheet
+import pandas as pd
+
+class ExcelComparatorApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("엑셀 비교 뷰어")
+        self.root.geometry("1700x850")
+
+        self.df_left = None
+        self.df_right = None
+
+        # 재진입 방지 플래그
+        self._syncing_scroll = False
+        self._syncing_select = False
+
+        # ── 상단 UI ──
+        top = tk.Frame(root)
+        top.pack(pady=10)
+
+        tk.Button(top, text="📂 첫 번째 파일 열기", command=self.load_left,
+                  bg="#3C91E6", fg="white", width=20).grid(row=0, column=0, padx=8)
+        tk.Button(top, text="📂 두 번째 파일 열기", command=self.load_right,
+                  bg="#3C91E6", fg="white", width=20).grid(row=0, column=1, padx=8)
+        tk.Button(top, text="🔍 비교 시작", command=self.compare_files,
+                  bg="#4CAF50", fg="white", width=18).grid(row=0, column=2, padx=8)
+
+        # ── 시트 영역 ──
+        frame = tk.Frame(root)
+        frame.pack(padx=10, pady=10, fill="both", expand=True)
+
+        self.left_sheet = Sheet(frame, width=830, height=720)
+        self.right_sheet = Sheet(frame, width=830, height=720)
+        self.left_sheet.grid(row=0, column=0, sticky="nsew", padx=5)
+        self.right_sheet.grid(row=0, column=1, sticky="nsew", padx=5)
+
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(1, weight=1)
+
+        # 스크롤/선택 동기화 설치
+        self._install_sync_scroll()
+        self._install_sync_selection()
+
+    @staticmethod
+    def _generate_excel_column_headers(num_columns):
+        # 1-based to Excel letters (A, B, ... Z, AA, AB ...)
+        headers = []
+        for i in range(1, num_columns + 1):
+            n = i
+            s = ""
+            while n > 0:
+                n, rem = divmod(n - 1, 26)
+                s = chr(65 + rem) + s
+            headers.append(s)
+        return headers
+
+    @staticmethod
+    def _to_b2_region(df):
+        # 강제 B2 영역으로 자르기: 첫 행/첫 열 제거 후 인덱스 리셋
+        cropped = df.iloc[1:, 1:]
+        # 완전히 비어있는 행/열 제거(엑셀 병합 잔여 공백 방지)
+        cropped = cropped.dropna(how="all", axis=0)
+        cropped = cropped.dropna(how="all", axis=1)
+        return cropped.reset_index(drop=True)
+
+    # =============== 스크롤 동기화 ===============
+    def _install_sync_scroll(self):
+        # 원래 yview/xview 보관
+        self._left_yview_orig  = self.left_sheet.MT.yview
+        self._right_yview_orig = self.right_sheet.MT.yview
+        self._left_xview_orig  = self.left_sheet.MT.xview
+        self._right_xview_orig = self.right_sheet.MT.xview
+
+        def left_yview_proxy(*args):
+            # 먼저 왼쪽을 정상 스크롤
+            self._left_yview_orig(*args)
+            # 현재 위치 읽기 (시작 fraction)
+            try:
+                start, _ = self.left_sheet.MT.yview()
+            except Exception:
+                return
+            # 재진입 방지 후 우측을 동일 위치로 이동
+            if not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    self.right_sheet.MT.yview_moveto(start)
+                finally:
+                    self._syncing_scroll = False
+
+        def right_yview_proxy(*args):
+            self._right_yview_orig(*args)
+            try:
+                start, _ = self.right_sheet.MT.yview()
+            except Exception:
+                return
+            if not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    self.left_sheet.MT.yview_moveto(start)
+                finally:
+                    self._syncing_scroll = False
+
+        def left_xview_proxy(*args):
+            self._left_xview_orig(*args)
+            try:
+                start, _ = self.left_sheet.MT.xview()
+            except Exception:
+                return
+            if not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    self.right_sheet.MT.xview_moveto(start)
+                finally:
+                    self._syncing_scroll = False
+
+        def right_xview_proxy(*args):
+            self._right_xview_orig(*args)
+            try:
+                start, _ = self.right_sheet.MT.xview()
+            except Exception:
+                return
+            if not self._syncing_scroll:
+                self._syncing_scroll = True
+                try:
+                    self.left_sheet.MT.xview_moveto(start)
+                finally:
+                    self._syncing_scroll = False
+
+        # 메서드 후킹
+        self.left_sheet.MT.yview  = left_yview_proxy
+        self.right_sheet.MT.yview = right_yview_proxy
+        self.left_sheet.MT.xview  = left_xview_proxy
+        self.right_sheet.MT.xview = right_xview_proxy
+
+    # =============== 셀 선택 동기화 ===============
+    def _install_sync_selection(self):
+        # 현재 선택된 셀을 읽어서 반대편에 반영
+        def sync_from_to(source_sheet, target_sheet):
+            if self._syncing_select:
+                return
+            try:
+                selected = source_sheet.get_currently_selected()
+            except Exception:
+                selected = None
+            if not selected:
+                return
+            # tksheet는 (row, column) 또는 (row, column, type) 반환 가능
+            r = selected[0] if isinstance(selected, (list, tuple)) and len(selected) >= 1 else None
+            c = selected[1] if isinstance(selected, (list, tuple)) and len(selected) >= 2 else None
+            if r is None or c is None:
+                return
+            self._syncing_select = True
+            try:
+                # 기존 비교 하이라이트(초록색)를 보존하기 위해 전체 디하이라이트는 하지 않는다
+                target_sheet.select_cell(r, c, redraw=True)
+                # 보이도록 스크롤 조정
+                try:
+                    top, bottom = target_sheet.MT.yview()
+                    total_rows = max(1, target_sheet.MT.get_total_rows())
+                    if not (top * total_rows <= r <= bottom * total_rows):
+                        vis_rows = max(1, int((bottom - top) * total_rows))
+                        frac = max(0.0, min(1.0, (r - vis_rows/2) / total_rows))
+                        target_sheet.MT.yview_moveto(frac)
+                    lft, rgt = target_sheet.MT.xview()
+                    total_cols = max(1, target_sheet.MT.get_total_columns())
+                    if not (lft * total_cols <= c <= rgt * total_cols):
+                        vis_cols = max(1, int((rgt - lft) * total_cols))
+                        fracx = max(0.0, min(1.0, (c - vis_cols/2) / total_cols))
+                        target_sheet.MT.xview_moveto(fracx)
+                except Exception:
+                    pass
+            finally:
+                self._syncing_select = False
+
+        def on_left_select(event=None):
+            sync_from_to(self.left_sheet, self.right_sheet)
+
+        def on_right_select(event=None):
+            sync_from_to(self.right_sheet, self.left_sheet)
+
+        # 마우스 클릭/드래그/키보드 이동 후 동기화
+        for ev in ("<ButtonRelease-1>", "<KeyRelease>", "<B1-Motion>"):
+            self.left_sheet.MT.bind(ev, on_left_select, add=True)
+            self.right_sheet.MT.bind(ev, on_right_select, add=True)
+
+        # 스크롤 휠로 이동 시에도 반영
+        def sync_scroll_from_to(source_sheet, target_sheet, axis="y"):
+            if self._syncing_scroll:
+                return
+            self._syncing_scroll = True
+            try:
+                if axis == "y":
+                    start, _ = source_sheet.MT.yview()
+                    target_sheet.MT.yview_moveto(start)
+                else:
+                    start, _ = source_sheet.MT.xview()
+                    target_sheet.MT.xview_moveto(start)
+            finally:
+                self._syncing_scroll = False
+
+        def on_left_wheel(event=None):
+            self.root.after_idle(lambda: sync_scroll_from_to(self.left_sheet, self.right_sheet, "y"))
+
+        def on_right_wheel(event=None):
+            self.root.after_idle(lambda: sync_scroll_from_to(self.right_sheet, self.left_sheet, "y"))
+
+        def on_left_shift_wheel(event=None):
+            self.root.after_idle(lambda: sync_scroll_from_to(self.left_sheet, self.right_sheet, "x"))
+
+        def on_right_shift_wheel(event=None):
+            self.root.after_idle(lambda: sync_scroll_from_to(self.right_sheet, self.left_sheet, "x"))
+
+        self.left_sheet.MT.bind("<MouseWheel>", on_left_wheel, add=True)
+        self.right_sheet.MT.bind("<MouseWheel>", on_right_wheel, add=True)
+        self.left_sheet.MT.bind("<Shift-MouseWheel>", on_left_shift_wheel, add=True)
+        self.right_sheet.MT.bind("<Shift-MouseWheel>", on_right_shift_wheel, add=True)
+
+        # tksheet 자체 이벤트도 함께 바인딩(버전별 호환성)
+        for ev in ("cell_select", "row_select", "column_select", "shift_cell_select", "drag_select"):
+            self.left_sheet.extra_bindings(ev,  lambda payload: on_left_select())
+            self.right_sheet.extra_bindings(ev, lambda payload: on_right_select())
+
+    # =============== 파일 로드 ===============
+    def load_left(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
+        if not path:
+            return
+        try:
+            # 원본 데이터가 B2부터 시작하므로 첫 행/첫 열을 제외
+            df = pd.read_excel(path, sheet_name=0, header=None, dtype=str).fillna("")
+            self.df_left = self._to_b2_region(df)
+        except Exception as e:
+            messagebox.showerror("오류", f"왼쪽 파일 로드 실패:\n{e}")
+            return
+        self.left_sheet.set_sheet_data(self.df_left.astype(str).values.tolist())
+        self.left_sheet.headers(self._generate_excel_column_headers(self.df_left.shape[1]))
+        self.left_sheet.enable_bindings((
+            "single_select",
+            "drag_select",
+            "column_width_resize",
+            "row_height_resize",
+            "copy",
+            "arrowkeys",
+        ))
+        # 원본 셀 크기 유지 (자동 리사이즈 비활성)
+        # 알림창 생략 (요청사항)
+
+    def load_right(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
+        if not path:
+            return
+        try:
+            df = pd.read_excel(path, sheet_name=0, header=None, dtype=str).fillna("")
+            self.df_right = self._to_b2_region(df)
+        except Exception as e:
+            messagebox.showerror("오류", f"오른쪽 파일 로드 실패:\n{e}")
+            return
+        self.right_sheet.set_sheet_data(self.df_right.astype(str).values.tolist())
+        self.right_sheet.headers(self._generate_excel_column_headers(self.df_right.shape[1]))
+        self.right_sheet.enable_bindings((
+            "single_select",
+            "drag_select",
+            "column_width_resize",
+            "row_height_resize",
+            "copy",
+            "arrowkeys",
+        ))
+        # 원본 셀 크기 유지 (자동 리사이즈 비활성)
+        # 알림창 생략 (요청사항)
+
+    # =============== 비교 실행 ===============
+    def compare_files(self):
+        if self.df_left is None or self.df_right is None:
+            messagebox.showwarning("안내", "두 파일을 모두 불러온 후 비교를 진행하세요.")
+            return
+
+        rows = min(len(self.df_left), len(self.df_right))
+        cols = min(len(self.df_left.columns), len(self.df_right.columns))
+        diff_count = 0
+
+        for i in range(rows):
+            for j in range(cols):
+                val_a = str(self.df_left.iat[i, j])
+                val_b = str(self.df_right.iat[i, j])
+                if val_a != val_b:
+                    diff_count += 1
+                    self.left_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
+                    self.right_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
+
+        messagebox.showinfo("비교 완료", f"값이 다른 셀 수: {diff_count}")
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ExcelComparatorApp(root)
+    root.mainloop()
+
+
+
+다른 버전임
+
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tksheet import Sheet
+import pandas as pd
+import openpyxl
+import xlrd
+from openpyxl import Workbook
+import os
+
+
+# ============================================
+# 🔹 오래된 .xls → .xlsx 자동 변환 함수
+# ============================================
+def convert_xls_to_xlsx(xls_path):
+    """오래된 .xls 파일을 openpyxl에서 읽을 수 있는 .xlsx로 변환"""
+    wb_xls = xlrd.open_workbook(xls_path)
+    sheet = wb_xls.sheet_by_index(0)
+
+    wb_xlsx = Workbook()
+    ws_xlsx = wb_xlsx.active
+
+    for r in range(sheet.nrows):
+        for c in range(sheet.ncols):
+            ws_xlsx.cell(row=r + 1, column=c + 1).value = sheet.cell_value(r, c)
+
+    new_path = os.path.splitext(xls_path)[0] + "_converted.xlsx"
+    wb_xlsx.save(new_path)
+    return new_path
+
+
+# ============================================
+# 🔹 엑셀 비교 GUI
+# ============================================
+class ExcelComparatorApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("엑셀 비교 뷰어 (정확한 B2 기준)")
+        self.root.geometry("1700x850")
+
+        self.df_left = None
+        self.df_right = None
+        self._syncing_scroll = False
+        self._syncing_select = False
+
+        # ─ 상단 버튼 ─
+        top = tk.Frame(root)
+        top.pack(pady=10)
+
+        tk.Button(top, text="📂 첫 번째 파일 열기", command=self.load_left,
+                  bg="#3C91E6", fg="white", width=20).grid(row=0, column=0, padx=8)
+        tk.Button(top, text="📂 두 번째 파일 열기", command=self.load_right,
+                  bg="#3C91E6", fg="white", width=20).grid(row=0, column=1, padx=8)
+        tk.Button(top, text="🔍 비교 시작", command=self.compare_files,
+                  bg="#4CAF50", fg="white", width=18).grid(row=0, column=2, padx=8)
+
+        # ─ 시트 영역 ─
+        frame = tk.Frame(root)
+        frame.pack(padx=10, pady=10, fill="both", expand=True)
+
+        self.left_sheet = Sheet(frame, width=830, height=720)
+        self.right_sheet = Sheet(frame, width=830, height=720)
+        self.left_sheet.grid(row=0, column=0, sticky="nsew", padx=5)
+        self.right_sheet.grid(row=0, column=1, sticky="nsew", padx=5)
+
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_columnconfigure(1, weight=1)
+
+        # ─ 동기화 설정 ─
+        self._install_sync_scroll()
+        self._install_sync_selection()
+
+    # ============================================
+    # 🔹 엑셀 데이터 B2부터 불러오기
+    # ============================================
+    def _load_b2_from_excel(self, path):
+        wb = openpyxl.load_workbook(path, data_only=True)
+        ws = wb.active
+
+        # 엑셀 좌표 기준으로 B2부터 읽기
+        data = []
+        for row in ws.iter_rows(min_row=2, min_col=2, values_only=True):
+            values = [cell if cell is not None else "" for cell in row]
+            # 완전히 빈 행 제외
+            if any(values):
+                data.append(values)
+
+        if not data:
+            raise ValueError("B2 이후에 데이터가 없습니다.")
+
+        df = pd.DataFrame(data)
+        # 완전히 빈 열 제거
+        df = df.dropna(how="all", axis=1)
+        return df.reset_index(drop=True)
+
+    # ============================================
+    # 🔹 스크롤 동기화
+    # ============================================
+    def _install_sync_scroll(self):
+        def sync_y(src, tgt):
+            def wrapper(*args):
+                src(*args)
+                try:
+                    start, _ = src()
+                    if not self._syncing_scroll:
+                        self._syncing_scroll = True
+                        tgt("moveto", start)
+                        self._syncing_scroll = False
+                except Exception:
+                    pass
+            return wrapper
+
+        def sync_x(src, tgt):
+            def wrapper(*args):
+                src(*args)
+                try:
+                    start, _ = src()
+                    if not self._syncing_scroll:
+                        self._syncing_scroll = True
+                        tgt("moveto", start)
+                        self._syncing_scroll = False
+                except Exception:
+                    pass
+            return wrapper
+
+        self._left_yview_orig = self.left_sheet.MT.yview
+        self._right_yview_orig = self.right_sheet.MT.yview
+        self._left_xview_orig = self.left_sheet.MT.xview
+        self._right_xview_orig = self.right_sheet.MT.xview
+
+        self.left_sheet.MT.yview = sync_y(self._left_yview_orig, self.right_sheet.MT.yview_moveto)
+        self.right_sheet.MT.yview = sync_y(self._right_yview_orig, self.left_sheet.MT.yview_moveto)
+        self.left_sheet.MT.xview = sync_x(self._left_xview_orig, self.right_sheet.MT.xview_moveto)
+        self.right_sheet.MT.xview = sync_x(self._right_xview_orig, self.left_sheet.MT.xview_moveto)
+
+    # ============================================
+    # 🔹 셀 선택 동기화
+    # ============================================
+    def _install_sync_selection(self):
+        def sync_from_to(source, target):
+            if self._syncing_select:
+                return
+            selected = source.get_currently_selected()
+            if not selected or len(selected) < 2:
+                return
+            r, c = selected[0], selected[1]
+            self._syncing_select = True
+            try:
+                target.select_cell(r, c, redraw=True)
+                target.see(r, c)
+            finally:
+                self._syncing_select = False
+
+        def on_left_select(event=None):
+            sync_from_to(self.left_sheet, self.right_sheet)
+
+        def on_right_select(event=None):
+            sync_from_to(self.right_sheet, self.left_sheet)
+
+        for ev in ("<ButtonRelease-1>", "<KeyRelease>", "<B1-Motion>"):
+            self.left_sheet.MT.bind(ev, on_left_select, add=True)
+            self.right_sheet.MT.bind(ev, on_right_select, add=True)
+
+    # ============================================
+    # 🔹 파일 불러오기 (.xls 자동 변환 + B2기준)
+    # ============================================
+    def load_left(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
+        if not path:
+            return
+
+        if path.lower().endswith(".xls"):
+            try:
+                path = convert_xls_to_xlsx(path)
+            except Exception as e:
+                messagebox.showerror("오류", f"파일 변환 실패:\n{e}")
+                return
+
+        try:
+            self.df_left = self._load_b2_from_excel(path)
+        except Exception as e:
+            messagebox.showerror("오류", f"왼쪽 파일 로드 실패:\n{e}")
+            return
+
+        self.left_sheet.set_sheet_data(self.df_left.astype(str).values.tolist())
+        self.left_sheet.headers(self._generate_headers(self.df_left.shape[1]))
+        self.left_sheet.enable_bindings((
+            "single_select", "drag_select", "copy", "arrowkeys"
+        ))
+        # 자동 리사이즈 비활성: 원본 크기 유지
+
+    def load_right(self):
+        path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
+        if not path:
+            return
+
+        if path.lower().endswith(".xls"):
+            try:
+                path = convert_xls_to_xlsx(path)
+            except Exception as e:
+                messagebox.showerror("오류", f"파일 변환 실패:\n{e}")
+                return
+
+        try:
+            self.df_right = self._load_b2_from_excel(path)
+        except Exception as e:
+            messagebox.showerror("오류", f"오른쪽 파일 로드 실패:\n{e}")
+            return
+
+        self.right_sheet.set_sheet_data(self.df_right.astype(str).values.tolist())
+        self.right_sheet.headers(self._generate_headers(self.df_right.shape[1]))
+        self.right_sheet.enable_bindings((
+            "single_select", "drag_select", "copy", "arrowkeys"
+        ))
+        # 자동 리사이즈 비활성: 원본 크기 유지
+
+    # ============================================
+    # 🔹 열 헤더 자동 생성 (A,B,C...)
+    # ============================================
+    @staticmethod
+    def _generate_headers(num_columns):
+        headers = []
+        for i in range(1, num_columns + 1):
+            n, s = i, ""
+            while n > 0:
+                n, rem = divmod(n - 1, 26)
+                s = chr(65 + rem) + s
+            headers.append(s)
+        return headers
+
+    # ============================================
+    # 🔹 비교 실행
+    # ============================================
+    def compare_files(self):
+        if self.df_left is None or self.df_right is None:
+            messagebox.showwarning("안내", "두 파일을 모두 불러온 후 비교를 진행하세요.")
+            return
+
+        rows = min(len(self.df_left), len(self.df_right))
+        cols = min(len(self.df_left.columns), len(self.df_right.columns))
+        diff_count = 0
+
+        for i in range(rows):
+            for j in range(cols):
+                val_a = str(self.df_left.iat[i, j])
+                val_b = str(self.df_right.iat[i, j])
+                if val_a != val_b:
+                    diff_count += 1
+                    self.left_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
+                    self.right_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
+
+        messagebox.showinfo("비교 완료", f"값이 다른 셀 수: {diff_count}")
+
+
+# ============================================
+# 🔹 실행부
+# ============================================
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ExcelComparatorApp(root)
+    root.mainloop()
+
+
+
