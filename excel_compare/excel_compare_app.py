@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox
-from tksheet import Sheet
+from tksheet import Sheet, rounded_box_coords
 import pandas as pd
 import openpyxl
 import xlrd
@@ -18,7 +18,6 @@ def convert_xls_to_xlsx(xls_path):
 
     wb_xlsx = Workbook()
     ws_xlsx = wb_xlsx.active
-
     for r in range(sheet.nrows):
         for c in range(sheet.ncols):
             ws_xlsx.cell(row=r + 1, column=c + 1).value = sheet.cell_value(r, c)
@@ -34,11 +33,13 @@ def convert_xls_to_xlsx(xls_path):
 class ExcelComparatorApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("엑셀 비교 뷰어 (정확한 B2 기준)")
+        self.root.title("엑셀 비교 뷰어")
         self.root.geometry("1700x850")
 
         self.df_left = None
         self.df_right = None
+        self.path_left = None
+        self.path_right = None
         self._syncing_scroll = False
         self._syncing_select = False
 
@@ -46,12 +47,18 @@ class ExcelComparatorApp:
         top = tk.Frame(root)
         top.pack(pady=10)
 
-        tk.Button(top, text="📂 첫 번째 파일 열기", command=self.load_left,
+        tk.Button(top, text="📂 첫 번째 파일", command=self.load_left,
                   bg="#3C91E6", fg="white", width=20).grid(row=0, column=0, padx=8)
-        tk.Button(top, text="📂 두 번째 파일 열기", command=self.load_right,
+        tk.Button(top, text="📂 두 번째 파일", command=self.load_right,
                   bg="#3C91E6", fg="white", width=20).grid(row=0, column=1, padx=8)
         tk.Button(top, text="🔍 비교 시작", command=self.compare_files,
-                  bg="#4CAF50", fg="white", width=18).grid(row=0, column=2, padx=8)
+                  bg="#FFC107", fg="black", width=20).grid(row=0, column=2, padx=8)
+        
+        # ─ 셀 주소 표시 라벨 ─
+        self.cell_address_label = tk.Label(top, text="셀 주소: ", 
+                                           font=("맑은 고딕", 10, "bold"), 
+                                           bg="#F0F0F0", padx=10, pady=5)
+        self.cell_address_label.grid(row=0, column=3, padx=8)
 
         # ─ 시트 영역 ─
         frame = tk.Frame(root)
@@ -71,26 +78,97 @@ class ExcelComparatorApp:
         self._install_sync_selection()
 
     # ============================================
-    # 🔹 엑셀 데이터 B2부터 불러오기
+    # 🔹 엑셀 데이터 B2부터 불러오기 (A열은 빈 열로 유지)
     # ============================================
     def _load_b2_from_excel(self, path):
+        """
+        A열과 1행은 빈 셀, B2부터 데이터 시작
+        A열도 포함해서 읽되, A열은 빈 값으로 유지
+        1행도 빈 행으로 추가
+        """
         wb = openpyxl.load_workbook(path, data_only=True)
-        ws = wb.active
 
-        # 엑셀 좌표 기준으로 B2부터 읽기
+        # 항상 첫 시트가 아닌 "채취일치" 시트를 사용
+        ws = wb["채취일치"] if "채취일치" in wb.sheetnames else wb.active
+        
+        # 병합된 셀 정보 수집: Excel (행, 열) -> 값 매핑
+        # 병합된 셀의 주 셀 값이 모든 병합된 행에 복제되어야 함
+        merged_cell_map = {}  # Excel (행, 열) -> 값
+        for merged_range in ws.merged_cells.ranges:
+            # 병합 범위: min_row, min_col, max_row, max_col
+            min_row, min_col, max_row, max_col = merged_range.min_row, merged_range.min_col, merged_range.max_row, merged_range.max_col
+            # 주 셀(첫 번째 셀)의 값 가져오기
+            master_cell = ws.cell(min_row, min_col)
+            master_value = master_cell.value if master_cell.value is not None else ""
+            
+            # 병합된 모든 셀에 값 복제 (Excel 좌표 기준으로 저장)
+            for r in range(min_row, max_row + 1):
+                for c in range(min_col, max_col + 1):
+                    if r >= 2 and c >= 2:  # B2부터만 처리 (1행과 A열은 빈 행/열)
+                        # Excel 좌표로 직접 저장 (나중에 변환)
+                        merged_cell_map[(r, c)] = str(master_value)
+        
         data = []
-        for row in ws.iter_rows(min_row=2, min_col=2, values_only=True):
-            values = [cell if cell is not None else "" for cell in row]
-            # 완전히 빈 행 제외
-            if any(values):
+        max_cols = 0
+        
+        # A열부터 읽되, 2행부터 시작 (A1은 제외, A2부터)
+        # Cell 객체로 읽어서 병합 정보 활용 (실제 Excel 행 번호 필요)
+        for row in ws.iter_rows(min_row=2, min_col=1, values_only=False):
+            # 실제 Excel 행 번호 가져오기
+            excel_row = row[0].row  # Excel 실제 행 번호 (2부터 시작)
+            df_row = excel_row - 2  # DataFrame 행 인덱스 (0부터 시작)
+            
+            values = []
+            # A열(첫 번째 열, row[0])은 항상 빈 문자열로 처리 (요구사항: A열은 빈 열)
+            values.append("")
+            # B열부터(두 번째 열, row[1]부터) 실제 데이터
+            for cell in row[1:]:  # row[0]은 A열이므로 무시, row[1:]부터가 B열
+                # 실제 Excel 열 번호 계산
+                excel_col = cell.column  # Excel 실제 열 번호
+                
+                # 병합된 셀인지 확인 (Excel 좌표 기준)
+                if (excel_row, excel_col) in merged_cell_map:
+                    # 병합된 셀의 값 사용
+                    values.append(merged_cell_map[(excel_row, excel_col)])
+                else:
+                    # 일반 셀 값
+                    values.append(str(cell.value) if cell.value is not None else "")
+            
+            # 최대 열 개수 업데이트
+            max_cols = max(max_cols, len(values))
+            
+            # 모든 행 추가 (병합된 셀 처리 및 원본 위치 유지를 위해)
+            # 빈 행 체크는 하되, 병합된 셀이 있으면 무조건 추가
+            # Excel 좌표 기준으로 병합된 셀 확인
+            has_merged_cell = any((excel_row, c) in merged_cell_map for c in range(2, ws.max_column + 1))
+            if has_merged_cell or any(str(v).strip() for v in values[1:]):  # values[0]은 A열(빈 열), values[1:]부터가 B열
                 data.append(values)
+        
+        # DataFrame 생성
+        if data:
+            df = pd.DataFrame(data)
 
-        if not data:
-            raise ValueError("B2 이후에 데이터가 없습니다.")
-
-        df = pd.DataFrame(data)
-        # 완전히 빈 열 제거
-        df = df.dropna(how="all", axis=1)
+            # A열을 제거하지 않음 (엑셀의 실제 구조와 일치하게)
+            keep = [0] + [
+                i for i in range(1, df.shape[1])
+                if not df.iloc[:, i].isna().all() and (df.iloc[:, i] != "").any()
+            ]
+            df = df.iloc[:, keep]
+            
+            max_cols = df.shape[1]  # 실제 열 개수
+        else:
+            # 데이터가 없어도 1행은 추가해야 함
+            max_cols = 2  # 최소 A, B열은 있어야 함
+        
+        # 1행 추가 (모두 빈 값, A열 포함)
+        empty_first_row = [""] * max_cols
+        if data:
+            # 첫 번째 행으로 삽입
+            df = pd.concat([pd.DataFrame([empty_first_row], columns=df.columns), df], ignore_index=True)
+        else:
+            # 데이터가 없으면 빈 DataFrame 생성
+            df = pd.DataFrame([empty_first_row])
+        
         return df.reset_index(drop=True)
 
     # ============================================
@@ -134,7 +212,30 @@ class ExcelComparatorApp:
         self.right_sheet.MT.xview = sync_x(self._right_xview_orig, self.left_sheet.MT.xview_moveto)
 
     # ============================================
-    # 🔹 셀 선택 동기화
+    # 🔹 행/열 인덱스를 Excel 주소로 변환 (예: row=1, col=1 → "B2")
+    # ============================================
+    def _row_col_to_excel_address(self, row, col):
+        """
+        tksheet의 row/col 인덱스(0-based)를 Excel 주소로 변환
+        - row=0 → Excel 행 1 (빈 행)
+        - row=1 → Excel 행 2 (데이터 시작)
+        - col=0 → Excel A열
+        - col=1 → Excel B열
+        """
+        # Excel 행 번호 (1-based): 화면 row + 1
+        excel_row = row + 1
+        
+        # Excel 열 이름 변환
+        excel_col_num = col + 1  # Excel 열 번호 (1=A, 2=B, ...)
+        n, s = excel_col_num, ""
+        while n > 0:
+            n, rem = divmod(n - 1, 26)
+            s = chr(65 + rem) + s
+        
+        return f"{s}{excel_row}"
+
+    # ============================================
+    # 🔹 셀 선택 동기화 + 주소 표시
     # ============================================
     def _install_sync_selection(self):
         def sync_from_to(source, target):
@@ -147,43 +248,46 @@ class ExcelComparatorApp:
             self._syncing_select = True
             try:
                 target.select_cell(r, c, redraw=True)
-                # 수동으로 셀이 화면에 보이도록 스크롤 조정 (see() 사용 시 버전별 None 처리 문제 회피)
-                try:
-                    top, bottom = target.MT.yview()
-                    total_rows = max(1, target.MT.get_total_rows())
-                    if not (top * total_rows <= r <= bottom * total_rows):
-                        vis_rows = max(1, int((bottom - top) * total_rows))
-                        frac = max(0.0, min(1.0, (r - vis_rows/2) / total_rows))
-                        target.MT.yview_moveto(frac)
-                    lft, rgt = target.MT.xview()
-                    total_cols = max(1, target.MT.get_total_columns())
-                    if not (lft * total_cols <= c <= rgt * total_cols):
-                        vis_cols = max(1, int((rgt - lft) * total_cols))
-                        fracx = max(0.0, min(1.0, (c - vis_cols/2) / total_cols))
-                        target.MT.xview_moveto(fracx)
-                except Exception:
-                    pass
+                target.see(r, c)
             finally:
                 self._syncing_select = False
 
+        def update_cell_address(sheet, side):
+            """선택된 셀의 Excel 주소를 업데이트"""
+            try:
+                selected = sheet.get_currently_selected()
+                if selected and len(selected) >= 2:
+                    r, c = selected[0], selected[1]
+                    address = self._row_col_to_excel_address(r, c)
+                    self.cell_address_label.config(text=f"셀 주소: {address} ({side})")
+                else:
+                    self.cell_address_label.config(text="셀 주소: -")
+            except Exception:
+                pass
+
         def on_left_select(event=None):
             sync_from_to(self.left_sheet, self.right_sheet)
+            update_cell_address(self.left_sheet, "왼쪽")
 
         def on_right_select(event=None):
             sync_from_to(self.right_sheet, self.left_sheet)
+            update_cell_address(self.right_sheet, "오른쪽")
 
         for ev in ("<ButtonRelease-1>", "<KeyRelease>", "<B1-Motion>"):
             self.left_sheet.MT.bind(ev, on_left_select, add=True)
             self.right_sheet.MT.bind(ev, on_right_select, add=True)
 
+        for ev in ("cell_select", "row_select", "column_select", "shift_cell_select", "drag_select"):
+            self.left_sheet.extra_bindings(ev, lambda p: on_left_select())
+            self.right_sheet.extra_bindings(ev, lambda p: on_right_select())
+
     # ============================================
-    # 🔹 파일 불러오기 (.xls 자동 변환 + B2기준)
+    # 🔹 파일 불러오기 (.xls 자동 변환 + B2 기준)
     # ============================================
     def load_left(self):
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
         if not path:
             return
-
         if path.lower().endswith(".xls"):
             try:
                 path = convert_xls_to_xlsx(path)
@@ -191,24 +295,24 @@ class ExcelComparatorApp:
                 messagebox.showerror("오류", f"파일 변환 실패:\n{e}")
                 return
 
+        self.path_left = path
         try:
             self.df_left = self._load_b2_from_excel(path)
         except Exception as e:
             messagebox.showerror("오류", f"왼쪽 파일 로드 실패:\n{e}")
             return
 
+        # 줄바꿈, 긴 문장 셀도 전부 표시
         self.left_sheet.set_sheet_data(self.df_left.astype(str).values.tolist())
+        self.left_sheet.set_all_cell_sizes_to_text()
+
         self.left_sheet.headers(self._generate_headers(self.df_left.shape[1]))
-        self.left_sheet.enable_bindings((
-            "single_select", "drag_select", "copy", "arrowkeys"
-        ))
-        # 자동 리사이즈 비활성: 원본 크기 유지
+        self.left_sheet.enable_bindings(("single_select", "drag_select", "copy", "arrowkeys"))
 
     def load_right(self):
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xls *.xlsx")])
         if not path:
             return
-
         if path.lower().endswith(".xls"):
             try:
                 path = convert_xls_to_xlsx(path)
@@ -216,6 +320,7 @@ class ExcelComparatorApp:
                 messagebox.showerror("오류", f"파일 변환 실패:\n{e}")
                 return
 
+        self.path_right = path
         try:
             self.df_right = self._load_b2_from_excel(path)
         except Exception as e:
@@ -223,20 +328,31 @@ class ExcelComparatorApp:
             return
 
         self.right_sheet.set_sheet_data(self.df_right.astype(str).values.tolist())
+        self.right_sheet.set_all_cell_sizes_to_text()
         self.right_sheet.headers(self._generate_headers(self.df_right.shape[1]))
-        self.right_sheet.enable_bindings((
-            "single_select", "drag_select", "copy", "arrowkeys"
-        ))
-        # 자동 리사이즈 비활성: 원본 크기 유지
+        self.right_sheet.enable_bindings(("single_select", "drag_select", "copy", "arrowkeys"))
 
     # ============================================
-    # 🔹 열 헤더 자동 생성 (A,B,C...)
+    # 🔹 열 헤더 자동 생성 (A,B,C,D... A열은 빈 열이지만 표시)
     # ============================================
     @staticmethod
-    def _generate_headers(num_columns):
+    def _generate_headers(num_columns, excel_start_col=1):
+        """
+        Excel 열 헤더 생성 (예: A, B, C, D, ...)
+        
+        A열은 빈 열이지만 화면에는 표시되어야 함
+        - DataFrame[0] = Excel A열 → 헤더 "A" (빈 열)
+        - DataFrame[1] = Excel B열 → 헤더 "B" (데이터 시작)
+        
+        Args:
+            num_columns: 생성할 헤더 개수 (DataFrame의 열 개수)
+            excel_start_col: Excel 열 번호 (1=A, 2=B, 3=C, ...)
+                            A열부터 표시하므로 기본값은 1
+        """
         headers = []
-        for i in range(1, num_columns + 1):
-            n, s = i, ""
+        # Excel 열 번호를 Excel 열 이름으로 변환 (A=1, B=2, C=3, ...)
+        for excel_col_num in range(excel_start_col, excel_start_col + num_columns):
+            n, s = excel_col_num, ""
             while n > 0:
                 n, rem = divmod(n - 1, 26)
                 s = chr(65 + rem) + s
@@ -244,7 +360,7 @@ class ExcelComparatorApp:
         return headers
 
     # ============================================
-    # 🔹 비교 실행
+    # 🔹 내부 비교 (노란색 표시)
     # ============================================
     def compare_files(self):
         if self.df_left is None or self.df_right is None:
@@ -255,14 +371,32 @@ class ExcelComparatorApp:
         cols = min(len(self.df_left.columns), len(self.df_right.columns))
         diff_count = 0
 
-        for i in range(rows):
-            for j in range(cols):
-                val_a = str(self.df_left.iat[i, j])
-                val_b = str(self.df_right.iat[i, j])
+        # 먼저 기존 강조 제거
+        self.left_sheet.dehighlight_all()
+        self.right_sheet.dehighlight_all()
+
+        # A열과 1행은 비교하지 않음 (헤더 영역)
+        for i in range(1, rows):
+            for j in range(1, cols):
+                # val_a = str(self.df_left.iat[i, j])
+                # val_b = str(self.df_right.iat[i, j])
+                # if val_a != val_b:
+
+                # 공백,개행, 숫자포멧 불일치로 인한 "가짜" 차이 제거
+                def norm(v):
+                    s = "" if v is None else str(v)
+                    s = s.replace("\r\n", "\n").replace("\r", "\n").strip()
+                    try:
+                        return str(float(s))
+                    except:
+                        return s
+
+                val_a = norm(self.df_left.iat[i, j])
+                val_b = norm(self.df_right.iat[i, j])
                 if val_a != val_b:
                     diff_count += 1
-                    self.left_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
-                    self.right_sheet.highlight_cells(row=i, column=j, bg="lightgreen")
+                    self.left_sheet.highlight_cells(row=i, column=j, bg="green")  
+                    self.right_sheet.highlight_cells(row=i, column=j, bg="green")
 
         messagebox.showinfo("비교 완료", f"값이 다른 셀 수: {diff_count}")
 
