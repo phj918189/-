@@ -91,83 +91,80 @@ class ExcelComparatorApp:
         # 항상 첫 시트가 아닌 "채취일치" 시트를 사용
         ws = wb["채취일치"] if "채취일치" in wb.sheetnames else wb.active
         
-        # 병합된 셀 정보 수집: Excel (행, 열) -> 값 매핑
-        # 병합된 셀의 주 셀 값이 모든 병합된 행에 복제되어야 함
-        merged_cell_map = {}  # Excel (행, 열) -> 값
+        # 병합된 셀 정보 수집
+        # 병합된 셀의 주 셀(첫 번째 셀)에만 값을 저장하고, 나머지 병합된 위치는 빈 값으로 처리
+        merged_cell_map = {}  # Excel (행, 열) -> 값 (주 셀만 저장)
+        merged_cell_ranges = {}  # Excel (행, 열) -> 병합 범위 정보 (주 셀만 저장)
+        merged_cell_ignore = set()  # 병합된 셀 범위 내의 하위 셀들 (무시해야 할 위치)
+        
         for merged_range in ws.merged_cells.ranges:
             # 병합 범위: min_row, min_col, max_row, max_col
             min_row, min_col, max_row, max_col = merged_range.min_row, merged_range.min_col, merged_range.max_row, merged_range.max_col
+            
             # 주 셀(첫 번째 셀)의 값 가져오기
             master_cell = ws.cell(min_row, min_col)
             master_value = master_cell.value if master_cell.value is not None else ""
             
-            # 병합된 모든 셀에 값 복제 (Excel 좌표 기준으로 저장)
+            # 주 셀에만 값 저장 (B2부터만 처리)
+            if min_row >= 2 and min_col >= 2:  # B2부터만 처리
+                merged_cell_map[(min_row, min_col)] = str(master_value)
+                merged_cell_ranges[(min_row, min_col)] = (min_row, min_col, max_row, max_col)
+            
+            # 병합된 셀 범위 내의 하위 셀들(주 셀 제외)은 무시 목록에 추가
             for r in range(min_row, max_row + 1):
                 for c in range(min_col, max_col + 1):
-                    if r >= 2 and c >= 2:  # B2부터만 처리 (1행과 A열은 빈 행/열)
-                        # Excel 좌표로 직접 저장 (나중에 변환)
-                        merged_cell_map[(r, c)] = str(master_value)
+                    if r >= 2 and c >= 2:  # B2부터만 처리
+                        # 주 셀이 아닌 경우에만 무시 목록에 추가
+                        if not (r == min_row and c == min_col):
+                            merged_cell_ignore.add((r, c))
+        
+        # Excel의 실제 행/열 범위 확인 (원본 구조 유지를 위해)
+        excel_max_row = ws.max_row  # Excel의 최대 행 번호
+        excel_max_col = ws.max_column  # Excel의 최대 열 번호
         
         data = []
-        max_cols = 0
-        
-        # A열부터 읽되, 2행부터 시작 (A1은 제외, A2부터)
-        # Cell 객체로 읽어서 병합 정보 활용 (실제 Excel 행 번호 필요)
-        for row in ws.iter_rows(min_row=2, min_col=1, values_only=False):
-            # 실제 Excel 행 번호 가져오기
-            excel_row = row[0].row  # Excel 실제 행 번호 (2부터 시작)
-            df_row = excel_row - 2  # DataFrame 행 인덱스 (0부터 시작)
-            
+        # Excel의 모든 행을 순회 (2행부터, 빈 행도 포함)
+        for excel_row in range(2, excel_max_row + 1):
             values = []
-            # A열(첫 번째 열, row[0])은 항상 빈 문자열로 처리 (요구사항: A열은 빈 열)
+            # A열(첫 번째 열)은 항상 빈 문자열로 처리
             values.append("")
-            # B열부터(두 번째 열, row[1]부터) 실제 데이터
-            for cell in row[1:]:  # row[0]은 A열이므로 무시, row[1:]부터가 B열
-                # 실제 Excel 열 번호 계산
-                excel_col = cell.column  # Excel 실제 열 번호
-                
-                # 병합된 셀인지 확인 (Excel 좌표 기준)
-                if (excel_row, excel_col) in merged_cell_map:
-                    # 병합된 셀의 값 사용
+            
+            # B열부터 Excel의 최대 열까지 순회 (빈 열도 포함)
+            for excel_col in range(2, excel_max_col + 1):  # 2=B열부터
+                # 병합된 셀 범위 내의 하위 셀인지 확인 (무시해야 할 위치)
+                if (excel_row, excel_col) in merged_cell_ignore:
+                    # 병합된 셀의 하위 셀은 빈 값으로 처리 (원본 구조 유지)
+                    values.append("")
+                elif (excel_row, excel_col) in merged_cell_map:
+                    # 병합된 셀의 주 셀인 경우, 저장된 값 사용
                     values.append(merged_cell_map[(excel_row, excel_col)])
                 else:
-                    # 일반 셀 값
+                    # 일반 셀 값 (셀이 없거나 None이면 빈 문자열)
+                    cell = ws.cell(excel_row, excel_col)
                     values.append(str(cell.value) if cell.value is not None else "")
             
-            # 최대 열 개수 업데이트
-            max_cols = max(max_cols, len(values))
-            
-            # 모든 행 추가 (병합된 셀 처리 및 원본 위치 유지를 위해)
-            # 빈 행 체크는 하되, 병합된 셀이 있으면 무조건 추가
-            # Excel 좌표 기준으로 병합된 셀 확인
-            has_merged_cell = any((excel_row, c) in merged_cell_map for c in range(2, ws.max_column + 1))
-            if has_merged_cell or any(str(v).strip() for v in values[1:]):  # values[0]은 A열(빈 열), values[1:]부터가 B열
-                data.append(values)
+            # 모든 행 추가 (빈 행도 포함하여 원본 구조 유지)
+            data.append(values)
         
-        # DataFrame 생성
+        # 열 개수 계산 (A열 + B열부터 최대 열까지 = excel_max_col)
+        max_cols = excel_max_col  # A열(1개) + B열부터 최대 열까지(excel_max_col-1개) = excel_max_col개
+        
+        # DataFrame 생성 (빈 행/열도 모두 포함하여 원본 구조 유지)
         if data:
             df = pd.DataFrame(data)
-
-            # A열을 제거하지 않음 (엑셀의 실제 구조와 일치하게)
-            keep = [0] + [
-                i for i in range(1, df.shape[1])
-                if not df.iloc[:, i].isna().all() and (df.iloc[:, i] != "").any()
-            ]
-            df = df.iloc[:, keep]
-            
-            max_cols = df.shape[1]  # 실제 열 개수
+            # 모든 열 유지 (빈 열도 포함하여 원본 구조 유지)
+            # 열 개수가 부족하면 빈 열 추가
+            if df.shape[1] < max_cols:
+                # 부족한 열만큼 빈 열 추가
+                for _ in range(max_cols - df.shape[1]):
+                    df[len(df.columns)] = ""
         else:
-            # 데이터가 없어도 1행은 추가해야 함
-            max_cols = 2  # 최소 A, B열은 있어야 함
+            # 데이터가 없어도 Excel의 열 범위는 유지
+            df = pd.DataFrame([[""] * max_cols])
         
         # 1행 추가 (모두 빈 값, A열 포함)
         empty_first_row = [""] * max_cols
-        if data:
-            # 첫 번째 행으로 삽입
-            df = pd.concat([pd.DataFrame([empty_first_row], columns=df.columns), df], ignore_index=True)
-        else:
-            # 데이터가 없으면 빈 DataFrame 생성
-            df = pd.DataFrame([empty_first_row])
+        df = pd.concat([pd.DataFrame([empty_first_row], columns=df.columns), df], ignore_index=True)
         
         return df.reset_index(drop=True)
 

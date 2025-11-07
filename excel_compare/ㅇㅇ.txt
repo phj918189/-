@@ -91,22 +91,32 @@ class ExcelComparatorApp:
         # 항상 첫 시트가 아닌 "채취일치" 시트를 사용
         ws = wb["채취일치"] if "채취일치" in wb.sheetnames else wb.active
         
-        # 병합된 셀 정보 수집: Excel (행, 열) -> 값 매핑
-        # 병합된 셀의 주 셀 값이 모든 병합된 행에 복제되어야 함
-        merged_cell_map = {}  # Excel (행, 열) -> 값
+        # 병합된 셀 정보 수집
+        # 병합된 셀의 주 셀(첫 번째 셀)에만 값을 저장하고, 나머지 병합된 위치는 빈 값으로 처리
+        merged_cell_map = {}  # Excel (행, 열) -> 값 (주 셀만 저장)
+        merged_cell_ranges = {}  # Excel (행, 열) -> 병합 범위 정보 (주 셀만 저장)
+        merged_cell_ignore = set()  # 병합된 셀 범위 내의 하위 셀들 (무시해야 할 위치)
+        
         for merged_range in ws.merged_cells.ranges:
             # 병합 범위: min_row, min_col, max_row, max_col
             min_row, min_col, max_row, max_col = merged_range.min_row, merged_range.min_col, merged_range.max_row, merged_range.max_col
+            
             # 주 셀(첫 번째 셀)의 값 가져오기
             master_cell = ws.cell(min_row, min_col)
             master_value = master_cell.value if master_cell.value is not None else ""
             
-            # 병합된 모든 셀에 값 복제 (Excel 좌표 기준으로 저장)
+            # 주 셀에만 값 저장 (B2부터만 처리)
+            if min_row >= 2 and min_col >= 2:  # B2부터만 처리
+                merged_cell_map[(min_row, min_col)] = str(master_value)
+                merged_cell_ranges[(min_row, min_col)] = (min_row, min_col, max_row, max_col)
+            
+            # 병합된 셀 범위 내의 하위 셀들(주 셀 제외)은 무시 목록에 추가
             for r in range(min_row, max_row + 1):
                 for c in range(min_col, max_col + 1):
-                    if r >= 2 and c >= 2:  # B2부터만 처리 (1행과 A열은 빈 행/열)
-                        # Excel 좌표로 직접 저장 (나중에 변환)
-                        merged_cell_map[(r, c)] = str(master_value)
+                    if r >= 2 and c >= 2:  # B2부터만 처리
+                        # 주 셀이 아닌 경우에만 무시 목록에 추가
+                        if not (r == min_row and c == min_col):
+                            merged_cell_ignore.add((r, c))
         
         data = []
         max_cols = 0
@@ -126,9 +136,12 @@ class ExcelComparatorApp:
                 # 실제 Excel 열 번호 계산
                 excel_col = cell.column  # Excel 실제 열 번호
                 
-                # 병합된 셀인지 확인 (Excel 좌표 기준)
-                if (excel_row, excel_col) in merged_cell_map:
-                    # 병합된 셀의 값 사용
+                # 병합된 셀 범위 내의 하위 셀인지 확인 (무시해야 할 위치)
+                if (excel_row, excel_col) in merged_cell_ignore:
+                    # 병합된 셀의 하위 셀은 빈 값으로 처리 (원본 구조 유지)
+                    values.append("")
+                elif (excel_row, excel_col) in merged_cell_map:
+                    # 병합된 셀의 주 셀인 경우, 저장된 값 사용
                     values.append(merged_cell_map[(excel_row, excel_col)])
                 else:
                     # 일반 셀 값
