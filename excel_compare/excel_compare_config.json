@@ -1,0 +1,40 @@
+{
+  "window": {
+    "width": 1700,
+    "height": 874,
+    "x": 159,
+    "y": 90
+  },
+  "theme": "dark",
+  "themes": {
+    "light": {
+      "diff_highlight": "green",
+      "button_primary": "#3C91E6",
+      "button_secondary": "#FFC107",
+      "label_bg": "#F0F0F0",
+      "text_secondary": "#666666",
+      "button_text": "white",
+      "button_secondary_text": "black",
+      "bg": "white",
+      "fg": "black"
+    },
+    "dark": {
+      "diff_highlight": "#FF6B6B",
+      "button_primary": "#4A90E2",
+      "button_secondary": "#F5A623",
+      "label_bg": "#2C2C2C",
+      "text_secondary": "#CCCCCC",
+      "button_text": "white",
+      "button_secondary_text": "black",
+      "bg": "#1E1E1E",
+      "fg": "#E0E0E0"
+    }
+  },
+  "font": {
+    "family": "맑은 고딕",
+    "size_default": 10,
+    "size_path": 9,
+    "weight_default": "bold"
+  },
+  "preferred_sheet": "채취일지"
+}

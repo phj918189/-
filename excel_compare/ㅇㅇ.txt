@@ -88,8 +88,8 @@ class ExcelComparatorApp:
         """
         wb = openpyxl.load_workbook(path, data_only=True)
 
-        # 항상 첫 시트가 아닌 "채취일치" 시트를 사용
-        ws = wb["채취일치"] if "채취일치" in wb.sheetnames else wb.active
+        # 항상 첫 시트가 아닌 "채취일지" 시트를 사용
+        ws = wb["채취일지"] if "채취일지" in wb.sheetnames else wb.active
         
         # 병합된 셀 정보 수집
         # 병합된 셀의 주 셀(첫 번째 셀)에만 값을 저장하고, 나머지 병합된 위치는 빈 값으로 처리
