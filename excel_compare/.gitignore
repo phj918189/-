@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 빌드 파일
+build/
+dist/
+*.spec
+
+# 설정 파일 (개인 설정이므로 선택적으로 제외)
+# excel_compare_config.json
+
+# 가상환경
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 임시 파일
+*.tmp
+*.temp
+*.log
+
+# 변환된 파일
+*_converted.xlsx
+
+# 결과 파일
+결과파일/
+원본파일/
+

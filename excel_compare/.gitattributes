@@ -1,0 +1,12 @@
+# 한글 파일 인코딩 설정
+*.md text eol=lf
+*.txt text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.bat text eol=crlf
+
+# 바이너리 파일
+*.exe binary
+*.xlsx binary
+*.xls binary
+
